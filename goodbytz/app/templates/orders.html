@@ -1,0 +1,447 @@
+{% extends "base.html" %}
+
+{% block title %}My Orders - GoodBytz{% endblock %}
+
+{% block content %}
+<div class="orders-container fade-in">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+        <h1 style="font-size: 2rem; font-weight: 700; color: var(--text-color);">My Orders</h1>
+        <div class="order-filters">
+            <button class="btn btn-primary active" data-status="all">
+                <i class="fas fa-th-list"></i> All
+            </button>
+            <button class="btn btn-dark" data-status="pending">
+                <i class="fas fa-clock"></i> Pending
+            </button>
+            <button class="btn btn-dark" data-status="confirmed">
+                <i class="fas fa-check"></i> Confirmed
+            </button>
+            <button class="btn btn-dark" data-status="preparing">
+                <i class="fas fa-fire"></i> Preparing
+            </button>
+            <button class="btn btn-dark" data-status="ready">
+                <i class="fas fa-bell"></i> Ready
+            </button>
+            <button class="btn btn-dark" data-status="delivered">
+                <i class="fas fa-check-double"></i> Delivered
+            </button>
+        </div>
+    </div>
+
+    <div id="orders-grid" class="orders-grid">
+        <div class="loading-container">
+            <div class="loading"></div>
+            <p>Loading orders...</p>
+        </div>
+    </div>
+</div>
+
+<div id="notification" class="notification" style="display: none;"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const ordersGrid = document.getElementById('orders-grid');
+    const notification = document.getElementById('notification');
+    const filterButtons = document.querySelectorAll('.order-filters button');
+    let currentStatus = 'all';
+
+    // Try to establish MQTT connection
+    try {
+        const mqttClient = new Paho.MQTT.Client(
+            window.location.hostname,
+            Number(window.location.port || 80),
+            "orders-page-" + Math.random().toString(16).substr(2, 8)
+        );
+
+        mqttClient.onMessageArrived = function(message) {
+            const topic = message.destinationName;
+            if (topic.startsWith('order_status/')) {
+                const orderId = topic.split('/')[1];
+                const status = message.payloadString;
+                updateOrderStatus(orderId, status);
+            }
+        };
+
+        mqttClient.onConnectionLost = function(responseObject) {
+            if (responseObject.errorCode !== 0) {
+                showNotification('MQTT connection lost. Updates may not be real-time.', 'error');
+            }
+        };
+
+        mqttClient.connect({
+            onSuccess: function() {
+                mqttClient.subscribe('order_status/#');
+                showNotification('Real-time updates active', 'success');
+            },
+            onFailure: function() {
+                showNotification('Could not connect to real-time updates', 'error');
+                // Load orders even if MQTT connection fails
+                loadOrders();
+            }
+        });
+    } catch (error) {
+        console.error('Could not establish MQTT connection:', error);
+        // Load orders even if MQTT connection fails
+        loadOrders();
+    }
+
+    // Filtering
+    filterButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            filterButtons.forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+            currentStatus = button.dataset.status;
+            loadOrders();
+        });
+    });
+
+    function showNotification(message, type = 'info') {
+        const notificationElement = document.getElementById('notification');
+        notificationElement.className = `notification ${type}`;
+        notificationElement.innerHTML = `
+            <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i>
+            <p>${message}</p>
+        `;
+        notificationElement.style.display = 'flex';
+        setTimeout(() => {
+            notificationElement.style.display = 'none';
+        }, 5000);
+    }
+
+    function loadOrders() {
+        ordersGrid.innerHTML = `
+            <div class="loading-container">
+                <div class="loading"></div>
+                <p>Loading orders...</p>
+            </div>
+        `;
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+            return;
+        }
+
+        fetch('/api/v1/orders/', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        })
+        .then(async response => {
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Could not load orders');
+            }
+            return response.json();
+        })
+        .then(orders => {
+            if (!Array.isArray(orders)) {
+                throw new Error('Invalid order data');
+            }
+
+            if (orders.length === 0) {
+                ordersGrid.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-receipt" style="font-size: 4rem; color: var(--border-color);"></i>
+                        <h2>No orders yet</h2>
+                        <p>Start by placing an order from the menu.</p>
+                        <a href="/menu" class="btn btn-primary">
+                            <i class="fas fa-utensils"></i> Go to Menu
+                        </a>
+                    </div>
+                `;
+                return;
+            }
+
+            const filteredOrders = currentStatus === 'all' 
+                ? orders 
+                : orders.filter(order => order.status.toLowerCase() === currentStatus);
+
+            if (filteredOrders.length === 0) {
+                ordersGrid.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-filter" style="font-size: 4rem; color: var(--border-color);"></i>
+                        <h2>No orders found in this status</h2>
+                        <p>Select a different status to see your other orders.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            ordersGrid.innerHTML = filteredOrders.map(order => `
+                <div class="order-card fade-in" data-order-id="${order.id}">
+                    <div class="order-header">
+                        <div>
+                            <span class="order-id">#${order.id}</span>
+                            <span class="order-date">${new Date(order.created_at).toLocaleString('en-US')}</span>
+                        </div>
+                        <span class="order-status status-${order.status.toLowerCase()}">${getStatusText(order.status)}</span>
+                    </div>
+                    
+                    <div class="order-items">
+                        ${order.items.map(item => `
+                            <div class="order-item">
+                                <div>
+                                    <span class="item-name">${item.menu_item.name}</span>
+                                    <span class="item-quantity">x ${item.quantity}</span>
+                                    ${item.special_instructions ? `
+                                        <small class="item-instructions">
+                                            <i class="fas fa-info-circle"></i> ${item.special_instructions}
+                                        </small>
+                                    ` : ''}
+                                </div>
+                                <span class="item-price">${(item.unit_price * item.quantity).toFixed(2)} ₺</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <div class="order-footer">
+                        <div>
+                            ${order.table_number ? `
+                                <span class="table-number">
+                                    <i class="fas fa-chair"></i> Table ${order.table_number}
+                                </span>
+                            ` : `
+                                <span class="takeaway">
+                                    <i class="fas fa-shopping-bag"></i> Takeaway
+                                </span>
+                            `}
+                            ${order.notes ? `
+                                <span class="order-notes" title="${order.notes}">
+                                    <i class="fas fa-note-sticky"></i> ${order.notes}
+                                </span>
+                            ` : ''}
+                        </div>
+                        <div class="order-total">
+                            <strong>Total:</strong>
+                            <span>${order.total_amount.toFixed(2)} ₺</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        })
+        .catch(error => {
+            console.error('Error loading orders:', error);
+            ordersGrid.innerHTML = `
+                <div class="error-state">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <h2>An error occurred while loading orders</h2>
+                    <p>${error.message}</p>
+                    <button onclick="loadOrders()" class="btn btn-primary">
+                        <i class="fas fa-sync"></i> Try Again
+                    </button>
+                </div>
+            `;
+            showNotification(error.message, 'error');
+        });
+    }
+
+    function updateOrderStatus(orderId, newStatus) {
+        const orderCard = document.querySelector(`.order-card[data-order-id="${orderId}"]`);
+        if (orderCard) {
+            const statusElement = orderCard.querySelector('.order-status');
+            statusElement.className = `order-status status-${newStatus.toLowerCase()}`;
+            statusElement.textContent = getStatusText(newStatus);
+
+            showNotification(`Order #${orderId} status updated: ${getStatusText(newStatus)}`, 'info');
+
+            // Remove card if it doesn't match current filter
+            if (currentStatus !== 'all' && currentStatus !== newStatus.toLowerCase()) {
+                orderCard.classList.add('fade-out');
+                setTimeout(() => {
+                    orderCard.remove();
+                    if (ordersGrid.children.length === 0) {
+                        loadOrders();
+                    }
+                }, 300);
+            }
+        }
+    }
+
+    function getStatusText(status) {
+        const statusMap = {
+            'PENDING': 'Pending',
+            'CONFIRMED': 'Confirmed',
+            'PREPARING': 'Preparing',
+            'READY': 'Ready',
+            'DELIVERED': 'Delivered',
+            'CANCELLED': 'Cancelled'
+        };
+        return statusMap[status] || status;
+    }
+
+    // Load orders when page loads
+    loadOrders();
+});
+</script>
+
+<style>
+.orders-container {
+    padding: 2rem 0;
+}
+
+.order-filters {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.order-filters button {
+    white-space: nowrap;
+}
+
+.order-filters button.active {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.orders-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+.order-card {
+    background: white;
+    border-radius: var(--border-radius);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    transition: transform 0.2s, opacity 0.3s;
+}
+
+.order-card:hover {
+    transform: translateY(-2px);
+}
+
+.order-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.order-id {
+    font-weight: 600;
+    color: var(--primary-color);
+    margin-right: 0.5rem;
+}
+
+.order-date {
+    color: var(--secondary-color);
+    font-size: 0.875rem;
+}
+
+.order-items {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.order-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.order-item:last-child {
+    margin-bottom: 0;
+}
+
+.item-name {
+    font-weight: 500;
+}
+
+.item-quantity {
+    color: var(--secondary-color);
+    margin-left: 0.5rem;
+}
+
+.item-price {
+    color: var(--text-color);
+    font-weight: 500;
+}
+
+.order-footer {
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.table-number,
+.takeaway,
+.order-notes {
+    color: var(--secondary-color);
+    font-size: 0.875rem;
+    margin-right: 1rem;
+}
+
+.order-total {
+    color: var(--primary-color);
+    font-size: 1.125rem;
+}
+
+.loading-container {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 3rem;
+}
+
+.loading-container p {
+    margin-top: 1rem;
+    color: var(--secondary-color);
+}
+
+.empty-state,
+.error-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 3rem;
+}
+
+.empty-state i,
+.error-state i {
+    margin-bottom: 1rem;
+}
+
+.empty-state h2,
+.error-state h2 {
+    margin-bottom: 0.5rem;
+    color: var(--text-color);
+}
+
+.empty-state p,
+.error-state p {
+    color: var(--secondary-color);
+    margin-bottom: 1.5rem;
+}
+
+.fade-out {
+    opacity: 0;
+    transform: translateY(10px);
+}
+
+@media (max-width: 768px) {
+    .orders-container {
+        padding: 1rem;
+    }
+
+    .order-filters {
+        margin-top: 1rem;
+    }
+
+    .orders-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .order-card {
+        margin-bottom: 1rem;
+    }
+}
+</style>
+{% endblock %} 

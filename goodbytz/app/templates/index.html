@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card" style="margin-top: 2rem;">
+    <h1 style="color: var(--primary-color); margin-bottom: 1rem;">Welcome to GoodBytz!</h1>
+    <p>GoodBytz is a modern food ordering and management system. It provides separate interfaces for customers and kitchen staff, enables order tracking, and offers integration with robotic kitchen assistants.</p>
+    
+    <div style="margin-top: 2rem;">
+        <h2 style="color: var(--secondary-color); margin-bottom: 1rem;">Features</h2>
+        <ul style="list-style-type: disc; margin-left: 2rem;">
+            <li>User Login: Separate login panels for customers and kitchen staff</li>
+            <li>Menu Management: Ability to add, edit, and delete menu items</li>
+            <li>Order System: Customers can select and order food from the menu</li>
+            <li>Order Tracking: Real-time order tracking for kitchen staff</li>
+            <li>MQTT Integration: Communication with robotic kitchen assistants</li>
+        </ul>
+    </div>
+    
+    <div style="margin-top: 2rem; display: flex; gap: 1rem;">
+        <a href="/menu" class="btn btn-primary">View Menu</a>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}GoodBytz - Food Ordering and Management System{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <header>
+        <div class="container">
+            <a href="/" class="logo">
+                <i class="fas fa-utensils"></i>
+                GoodBytz
+            </a>
+            <nav>
+                <ul>
+                    <li><a href="/"><i class="fas fa-home"></i> Home</a></li>
+                    <li><a href="/menu"><i class="fas fa-book-open"></i> Menu</a></li>
+                    <li><a href="/orders"><i class="fas fa-receipt"></i> My Orders</a></li>
+                    <li id="kitchen-nav" style="display: none;"><a href="/kitchen"><i class="fas fa-kitchen-set"></i> Kitchen</a></li>
+                    <li id="user-info" style="display: none;"></li>
+                    <li><a href="/login" id="login-btn" class="btn btn-primary"><i class="fas fa-sign-in-alt"></i> Login</a></li>
+                    <li><a href="#" id="logout-btn" style="display: none;" class="btn btn-dark"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container fade-in">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <div class="container">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="color: var(--primary-color); margin-bottom: 0.5rem;">GoodBytz</h3>
+                    <p style="color: var(--secondary-color);">Modern food ordering and management system</p>
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <a href="#" class="btn btn-dark" style="padding: 0.5rem;"><i class="fab fa-github"></i></a>
+                    <a href="#" class="btn btn-dark" style="padding: 0.5rem;"><i class="fab fa-linkedin"></i></a>
+                    <a href="#" class="btn btn-dark" style="padding: 0.5rem;"><i class="fab fa-twitter"></i></a>
+                </div>
+            </div>
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color); text-align: center; color: var(--secondary-color);">
+                <p>&copy; 2025 GoodBytz. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', path='/js/main.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html> 

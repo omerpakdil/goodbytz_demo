@@ -1,0 +1,484 @@
+{% extends "base.html" %}
+
+{% block title %}Kitchen - GoodBytz{% endblock %}
+
+{% block content %}
+<div class="kitchen-container fade-in">
+    <div class="kitchen-header">
+        <h1><i class="fas fa-kitchen-set"></i> Kitchen Management</h1>
+        
+        <div class="kitchen-controls">
+            <button id="refresh-btn" class="btn btn-primary">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+            <select id="status-filter" class="form-control">
+                <option value="all">All Active Orders</option>
+                <option value="pending">Pending Orders</option>
+                <option value="confirmed">Confirmed Orders</option>
+                <option value="preparing">Orders Being Prepared</option>
+                <option value="ready">Ready Orders</option>
+            </select>
+        </div>
+    </div>
+    
+    <div id="kitchen-auth-error" class="alert alert-danger" style="display: none;">
+        <i class="fas fa-exclamation-triangle"></i> You must have kitchen staff authorization to view this page.
+    </div>
+    
+    <div id="kitchen-container" style="display: none;">
+        <div class="kitchen-stats">
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-clock"></i></div>
+                <div class="stat-content">
+                    <h3 id="pending-count">0</h3>
+                    <p>Pending</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-check"></i></div>
+                <div class="stat-content">
+                    <h3 id="confirmed-count">0</h3>
+                    <p>Confirmed</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-fire"></i></div>
+                <div class="stat-content">
+                    <h3 id="preparing-count">0</h3>
+                    <p>Preparing</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-bell"></i></div>
+                <div class="stat-content">
+                    <h3 id="ready-count">0</h3>
+                    <p>Ready</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="loading-container" id="loading-container">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Loading orders...</p>
+            </div>
+        </div>
+        
+        <div id="orders-list" class="orders-grid">
+            <!-- Orders will be populated by JavaScript -->
+        </div>
+        
+        <div id="no-orders-message" style="display: none;" class="no-orders-message">
+            <i class="fas fa-clipboard-check"></i>
+            <p>No active orders.</p>
+        </div>
+        
+        <div id="error-message" style="display: none;" class="error-message">
+            <i class="fas fa-exclamation-circle"></i>
+            <p>An error occurred while loading orders.</p>
+            <button class="btn btn-primary" onclick="location.reload()">
+                <i class="fas fa-redo"></i> Try Again
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const kitchenContainer = document.getElementById('kitchen-container');
+        const kitchenAuthError = document.getElementById('kitchen-auth-error');
+        const ordersList = document.getElementById('orders-list');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const statusFilter = document.getElementById('status-filter');
+        const loadingContainer = document.getElementById('loading-container');
+        const noOrdersMessage = document.getElementById('no-orders-message');
+        const errorMessage = document.getElementById('error-message');
+        
+        // Counters
+        const pendingCount = document.getElementById('pending-count');
+        const confirmedCount = document.getElementById('confirmed-count');
+        const preparingCount = document.getElementById('preparing-count');
+        const readyCount = document.getElementById('ready-count');
+        
+        const token = localStorage.getItem('token');
+        
+        if (!token) {
+            kitchenAuthError.style.display = 'flex';
+            return;
+        }
+        
+        // Check user authorization
+        fetch('/api/v1/users/me', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                return response.json();
+            } else {
+                throw new Error('Could not get user information');
+            }
+        })
+        .then(data => {
+            if (data.is_kitchen_staff || data.is_superuser) {
+                kitchenContainer.style.display = 'block';
+                loadOrders();
+                setupMQTT();
+            } else {
+                kitchenAuthError.style.display = 'flex';
+            }
+        })
+        .catch(error => {
+            console.error('Authorization check error:', error);
+            kitchenAuthError.style.display = 'flex';
+        });
+        
+        // Load orders
+        function loadOrders() {
+            // Show loading indicator
+            loadingContainer.style.display = 'flex';
+            ordersList.style.display = 'none';
+            noOrdersMessage.style.display = 'none';
+            errorMessage.style.display = 'none';
+            
+            const status = statusFilter.value;
+            let url = '/api/v1/kitchen/orders';
+            
+            if (status !== 'all') {
+                url = `/api/v1/kitchen/orders/${status}`;
+            }
+            
+            fetch(url, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                } else {
+                    throw new Error('Could not load orders');
+                }
+            })
+            .then(data => {
+                // Hide loading indicator
+                loadingContainer.style.display = 'none';
+                
+                // Update counters
+                updateCounters(data);
+                
+                if (data.length === 0) {
+                    noOrdersMessage.style.display = 'flex';
+                    return;
+                }
+                
+                ordersList.innerHTML = '';
+                ordersList.style.display = 'grid';
+                
+                data.forEach(order => {
+                    const statusClass = `status-${order.status.toLowerCase()}`;
+                    const statusText = getStatusText(order.status);
+                    
+                    let actionButtons = '';
+                    let statusIcon = '';
+                    
+                    // Action buttons and icon based on order status
+                    if (order.status === 'PENDING') {
+                        statusIcon = '<i class="fas fa-clock"></i>';
+                        actionButtons = `
+                            <button class="btn btn-primary update-order-status" data-order-id="${order.id}" data-action="confirm">
+                                <i class="fas fa-check"></i> Confirm
+                            </button>
+                        `;
+                    } else if (order.status === 'CONFIRMED') {
+                        statusIcon = '<i class="fas fa-check"></i>';
+                        actionButtons = `
+                            <button class="btn btn-primary update-order-status" data-order-id="${order.id}" data-action="prepare">
+                                <i class="fas fa-fire"></i> Start Preparing
+                            </button>
+                        `;
+                    } else if (order.status === 'PREPARING') {
+                        statusIcon = '<i class="fas fa-fire"></i>';
+                        actionButtons = `
+                            <button class="btn btn-primary update-order-status" data-order-id="${order.id}" data-action="ready">
+                                <i class="fas fa-bell"></i> Ready
+                            </button>
+                        `;
+                    } else if (order.status === 'READY') {
+                        statusIcon = '<i class="fas fa-bell"></i>';
+                        actionButtons = `
+                            <button class="btn btn-primary update-order-status" data-order-id="${order.id}" data-action="deliver">
+                                <i class="fas fa-check-double"></i> Deliver
+                            </button>
+                        `;
+                    }
+                    
+                    const orderHtml = `
+                        <div class="order-card fade-in">
+                            <div class="order-header">
+                                <div class="order-id">
+                                    <h3>Order #${order.id}</h3>
+                                    <span class="order-time">${formatDate(order.created_at)}</span>
+                                </div>
+                                <span class="order-status ${statusClass}">
+                                    ${statusIcon} ${statusText}
+                                </span>
+                            </div>
+                            
+                            <div class="order-details">
+                                <div class="order-info">
+                                    <p><i class="fas fa-money-bill-wave"></i> <strong>${order.total_amount.toFixed(2)} TL</strong></p>
+                                    ${order.table_number ? `<p><i class="fas fa-chair"></i> <strong>Table ${order.table_number}</strong></p>` : ''}
+                                    ${order.is_takeaway ? '<p><i class="fas fa-shopping-bag"></i> <strong>Takeaway Order</strong></p>' : ''}
+                                </div>
+                                
+                                ${order.notes ? `
+                                <div class="order-notes">
+                                    <p><i class="fas fa-sticky-note"></i> <strong>Notes:</strong></p>
+                                    <p>${order.notes}</p>
+                                </div>
+                                ` : ''}
+                                
+                                <div class="order-items">
+                                    <h4><i class="fas fa-utensils"></i> Order Details</h4>
+                                    <ul>
+                                        ${order.items.map(item => `
+                                            <li>
+                                                <div class="item-details">
+                                                    <span class="item-quantity">${item.quantity}x</span>
+                                                    <span class="item-name">${item.menu_item.name}</span>
+                                                    <span class="item-price">${(item.unit_price * item.quantity).toFixed(2)} TL</span>
+                                                </div>
+                                                ${item.special_instructions ? `
+                                                <div class="item-instructions">
+                                                    <small><i class="fas fa-info-circle"></i> ${item.special_instructions}</small>
+                                                </div>
+                                                ` : ''}
+                                            </li>
+                                        `).join('')}
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="order-actions">
+                                ${actionButtons}
+                            </div>
+                        </div>
+                    `;
+                    
+                    ordersList.innerHTML += orderHtml;
+                });
+                
+                // Add event listeners to action buttons
+                document.querySelectorAll('.update-order-status').forEach(button => {
+                    button.addEventListener('click', updateOrderStatus);
+                });
+            })
+            .catch(error => {
+                console.error('Error loading orders:', error);
+                loadingContainer.style.display = 'none';
+                errorMessage.style.display = 'flex';
+            });
+        }
+        
+        // Update counters
+        function updateCounters(orders) {
+            let pending = 0;
+            let confirmed = 0;
+            let preparing = 0;
+            let ready = 0;
+            
+            orders.forEach(order => {
+                if (order.status === 'PENDING') pending++;
+                if (order.status === 'CONFIRMED') confirmed++;
+                if (order.status === 'PREPARING') preparing++;
+                if (order.status === 'READY') ready++;
+            });
+            
+            pendingCount.textContent = pending;
+            confirmedCount.textContent = confirmed;
+            preparingCount.textContent = preparing;
+            readyCount.textContent = ready;
+        }
+        
+        // Update order status
+        function updateOrderStatus(e) {
+            const orderId = this.getAttribute('data-order-id');
+            const action = this.getAttribute('data-action');
+            
+            // Disable button
+            this.disabled = true;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            
+            fetch(`/api/v1/kitchen/orders/${orderId}/${action}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                } else {
+                    throw new Error('Could not update order status');
+                }
+            })
+            .then(data => {
+                // Show success notification
+                showNotification(`Order #${orderId} status updated: ${getStatusText(data.status)}`);
+                loadOrders();
+            })
+            .catch(error => {
+                console.error('Update error:', error);
+                showNotification('An error occurred while updating the order status.', 'error');
+                this.disabled = false;
+                
+                // Restore button to original state
+                const originalAction = this.getAttribute('data-action');
+                let buttonText = '';
+                let buttonIcon = '';
+                
+                if (originalAction === 'confirm') {
+                    buttonIcon = 'check';
+                    buttonText = 'Confirm';
+                } else if (originalAction === 'prepare') {
+                    buttonIcon = 'fire';
+                    buttonText = 'Start Preparing';
+                } else if (originalAction === 'ready') {
+                    buttonIcon = 'bell';
+                    buttonText = 'Ready';
+                } else if (originalAction === 'deliver') {
+                    buttonIcon = 'check-double';
+                    buttonText = 'Deliver';
+                }
+                
+                this.innerHTML = `<i class="fas fa-${buttonIcon}"></i> ${buttonText}`;
+            });
+        }
+        
+        // Show notification
+        function showNotification(message, type = 'success') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.innerHTML = `
+                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+                <p>${message}</p>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Wait a bit for animation
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 10);
+            
+            // Remove after 3 seconds
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            }, 3000);
+        }
+        
+        // Set up MQTT connection
+        function setupMQTT() {
+            const client = new Paho.MQTT.Client(
+                window.location.hostname,
+                Number(9001),
+                "kitchen_" + Math.random().toString(16).substr(2, 8)
+            );
+            
+            client.onConnectionLost = function(responseObject) {
+                if (responseObject.errorCode !== 0) {
+                    console.log("MQTT connection lost:", responseObject.errorMessage);
+                }
+            };
+            
+            client.onMessageArrived = function(message) {
+                const topic = message.destinationName;
+                const payload = JSON.parse(message.payloadString);
+                
+                if (topic.startsWith('goodbytz/orders/')) {
+                    // Show notification for new orders
+                    if (topic.includes('/status/')) {
+                        const orderId = topic.split('/')[2];
+                        showNotification(`Order #${orderId} status updated: ${getStatusText(payload.status)}`);
+                    } else if (topic.includes('/kitchen/new_order')) {
+                        showNotification('New order received!');
+                    }
+                    
+                    loadOrders();  // Update list when new order arrives or status changes
+                }
+            };
+            
+            client.connect({
+                onSuccess: function() {
+                    console.log("MQTT connection successful");
+                    client.subscribe("goodbytz/orders/#");
+                },
+                onFailure: function(message) {
+                    console.log("MQTT connection failed:", message.errorMessage);
+                }
+            });
+        }
+        
+        // Refresh button click handler
+        refreshBtn.addEventListener('click', function() {
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+            loadOrders();
+            setTimeout(() => {
+                this.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
+            }, 1000);
+        });
+        
+        // Filter change handler
+        statusFilter.addEventListener('change', loadOrders);
+        
+        // Order status text
+        function getStatusText(status) {
+            const statusMap = {
+                'PENDING': 'Pending',
+                'CONFIRMED': 'Confirmed',
+                'PREPARING': 'Preparing',
+                'READY': 'Ready',
+                'DELIVERED': 'Delivered',
+                'CANCELLED': 'Cancelled'
+            };
+            
+            return statusMap[status] || status;
+        }
+        
+        // Format date
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            
+            if (diffMins < 1) {
+                return 'Just now';
+            } else if (diffMins < 60) {
+                return `${diffMins} minutes ago`;
+            } else if (diffMins < 1440) {
+                const hours = Math.floor(diffMins / 60);
+                return `${hours} hours ago`;
+            } else {
+                return date.toLocaleString('en-US', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            }
+        }
+    });
+</script>
+
+<!-- MQTT client library -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+{% endblock %} 

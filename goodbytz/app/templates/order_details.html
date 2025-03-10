@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Order Details - GoodBytz{% endblock %}
+
+{% block content %}
+<div class="card fade-in" style="margin-top: 2rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h1 style="font-size: 1.5rem; margin: 0;">
+            <i class="fas fa-receipt"></i> Order #{{ order.id }}
+        </h1>
+        <span class="order-status status-{{ order.status.value.lower() }}">
+            {{ order.status.value }}
+        </span>
+    </div>
+
+    <div style="margin-bottom: 1.5rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+            <div>
+                <h3 style="font-size: 1rem; color: var(--secondary-color); margin-bottom: 0.5rem;">
+                    <i class="fas fa-clock"></i> Order Date
+                </h3>
+                <p style="margin: 0; font-weight: 500;">{{ order.created_at.strftime('%d.%m.%Y %H:%M') }}</p>
+            </div>
+            {% if order.table_number %}
+            <div>
+                <h3 style="font-size: 1rem; color: var(--secondary-color); margin-bottom: 0.5rem;">
+                    <i class="fas fa-chair"></i> Table Number
+                </h3>
+                <p style="margin: 0; font-weight: 500;">{{ order.table_number }}</p>
+            </div>
+            {% else %}
+            <div>
+                <h3 style="font-size: 1rem; color: var(--secondary-color); margin-bottom: 0.5rem;">
+                    <i class="fas fa-shopping-bag"></i> Order Type
+                </h3>
+                <p style="margin: 0; font-weight: 500;">Takeaway</p>
+            </div>
+            {% endif %}
+            <div>
+                <h3 style="font-size: 1rem; color: var(--secondary-color); margin-bottom: 0.5rem;">
+                    <i class="fas fa-money-bill"></i> Total Amount
+                </h3>
+                <p style="margin: 0; font-weight: 500;">{{ "%.2f"|format(order.total_amount) }} ₺</p>
+            </div>
+        </div>
+    </div>
+
+    {% if order.notes %}
+    <div style="margin-bottom: 1.5rem;">
+        <h3 style="font-size: 1rem; color: var(--secondary-color); margin-bottom: 0.5rem;">
+            <i class="fas fa-comment"></i> Order Notes
+        </h3>
+        <p style="margin: 0; padding: 1rem; background-color: var(--border-color); border-radius: var(--border-radius);">
+            {{ order.notes }}
+        </p>
+    </div>
+    {% endif %}
+
+    <div>
+        <h3 style="font-size: 1rem; color: var(--secondary-color); margin-bottom: 1rem;">
+            <i class="fas fa-utensils"></i> Order Details
+        </h3>
+        <div class="order-items">
+            {% for item in order.items %}
+            <div class="order-item" style="display: flex; justify-content: space-between; align-items: start; padding: 1rem; border-bottom: 1px solid var(--border-color);">
+                <div>
+                    <h4 style="margin: 0; font-size: 1rem;">{{ item.menu_item.name }}</h4>
+                    {% if item.special_instructions %}
+                    <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: var(--secondary-color);">
+                        <i class="fas fa-info-circle"></i> {{ item.special_instructions }}
+                    </p>
+                    {% endif %}
+                </div>
+                <div style="text-align: right;">
+                    <p style="margin: 0; font-weight: 500;">{{ item.quantity }}x {{ "%.2f"|format(item.unit_price) }} ₺</p>
+                    <p style="margin: 0; color: var(--secondary-color);">Total: {{ "%.2f"|format(item.quantity * item.unit_price) }} ₺</p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div style="margin-top: 2rem; text-align: center;">
+        <a href="/orders" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to My Orders
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Token check
+    const token = localStorage.getItem('token');
+    if (!token) {
+        window.location.href = '/login';
+        return;
+    }
+});
+</script>
+{% endblock %} 

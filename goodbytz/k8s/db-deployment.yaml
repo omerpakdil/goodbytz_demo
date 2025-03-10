@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goodbytz-db
+  labels:
+    app: goodbytz
+    component: db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: goodbytz
+      component: db
+  template:
+    metadata:
+      labels:
+        app: goodbytz
+        component: db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:13
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: goodbytz-secrets
+              key: postgres-user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: goodbytz-secrets
+              key: postgres-password
+        - name: POSTGRES_DB
+          value: goodbytz
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        resources:
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: postgres-pvc 

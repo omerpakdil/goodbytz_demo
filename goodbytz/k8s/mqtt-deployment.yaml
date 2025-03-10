@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goodbytz-mqtt
+  labels:
+    app: goodbytz
+    component: mqtt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: goodbytz
+      component: mqtt
+  template:
+    metadata:
+      labels:
+        app: goodbytz
+        component: mqtt
+    spec:
+      containers:
+      - name: mqtt
+        image: eclipse-mosquitto:2
+        ports:
+        - containerPort: 1883
+        - containerPort: 9001
+        volumeMounts:
+        - name: mosquitto-config
+          mountPath: /mosquitto/config
+        - name: mosquitto-data
+          mountPath: /mosquitto/data
+        - name: mosquitto-log
+          mountPath: /mosquitto/log
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+      volumes:
+      - name: mosquitto-config
+        configMap:
+          name: mosquitto-config
+      - name: mosquitto-data
+        persistentVolumeClaim:
+          claimName: mosquitto-data-pvc
+      - name: mosquitto-log
+        persistentVolumeClaim:
+          claimName: mosquitto-log-pvc 
